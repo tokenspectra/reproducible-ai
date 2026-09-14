@@ -1,0 +1,31 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+traces/
+*.trace.jsonl
+*.safetensors
+
+cloud/nebius/.instance.env
+cloud/nebius/.secrets.env
+cloud/nebius/envelopes/*.json
+packages/*/.venv/
+services/*/.venv/
+
+# editor / swap files (a vim swap of a secrets file contains the secrets)
+*.swp
+*.swo
+*~
+.DS_Store
+
+# local env files anywhere
+.env
+.env.local
+.secrets.env
+*.secrets.env
+!.secrets.env.example
+
+# databases
+*.db
+*.sqlite3

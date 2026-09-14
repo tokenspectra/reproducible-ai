@@ -1,0 +1,3 @@
+.instance.env
+.secrets.env
+envelopes/*.json
