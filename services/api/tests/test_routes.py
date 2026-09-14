@@ -146,11 +146,20 @@ def test_token_roundtrip_and_import(client):
     assert tok["token"].startswith("rai1.")
     assert client.post("/v1/tokens/inspect", json={"token": tok["token"]}).json()["valid"]
 
-    imported = client.post("/v1/conversations", json={"resume_token": tok["token"]}).json()
-    assert imported["imported_from_token"] is True
-    assert imported["seed_source"] == "external"
+    # default: seed only, nothing copied
+    seeded = client.post("/v1/conversations", json={"resume_token": tok["token"]}).json()
+    assert seeded["imported_from_token"] is True
+    assert seeded["seed_source"] == "external"
+    assert seeded["turns"] == []
+    assert seeded["next_turn"] == 0
+
+    # opting in to the full state copies the history and continues from it
+    imported = client.post(
+        "/v1/conversations", json={"resume_token": tok["token"], "token_mode": "state"}
+    ).json()
     assert len(imported["turns"]) == 2
     assert imported["forked_from"] == conv["id"]
+    assert imported["next_turn"] == 2
 
 
 def test_tampered_token_rejected(client):
@@ -171,11 +180,14 @@ def test_explicit_seed_recorded_as_external(client):
 
 def test_send_to_down_engine_is_refused(client, monkeypatch):
     conv = client.post("/v1/conversations", json={}).json()
+    import time as _time
+
     from overversion_api.engines import EngineId
 
     tracker = client.app.state.status
     tracker._statuses[EngineId.REPRODUCIBLE].up = False
     tracker._statuses[EngineId.REPRODUCIBLE].detail = "box is off"
+    tracker._checked_at = _time.time()  # keep it fresh so current() serves this
     r = client.post(
         f"/v1/conversations/{conv['id']}/messages",
         json={"content": "x", "engine": "reproducible"},
@@ -216,3 +228,43 @@ def test_history_sent_upstream_includes_the_new_message(client):
     assert roles == ["user", "assistant", "user"]
     assert contents[0] == "first question"
     assert contents[-1] == "second question"
+
+
+def test_conversations_get_incremental_numbers(client):
+    a = client.post("/v1/conversations", json={}).json()
+    b = client.post("/v1/conversations", json={}).json()
+    fork = client.post(f"/v1/conversations/{a['id']}/fork").json()
+    assert [a["seq"], b["seq"], fork["seq"]] == [1, 2, 3]
+
+    # numbers are per user, and deleting does not renumber or reuse
+    client.delete(f"/v1/conversations/{b['id']}")
+    c = client.post("/v1/conversations", json={}).json()
+    assert c["seq"] == 4
+
+    other = make_header(SECRET, "second@b.c", "S")
+    mine = client.post(
+        "/v1/conversations", json={}, headers={"X-Overversion-Identity": other}
+    ).json()
+    assert mine["seq"] == 1
+
+
+def test_token_as_seed_reproduces_the_same_first_answer(client):
+    """The headline demo: two separate empty chats, same first message, same answer."""
+    first = client.post("/v1/conversations", json={}).json()
+    client.post(
+        f"/v1/conversations/{first['id']}/messages",
+        json={"content": "hola, poema por favor", "engine": "reproducible"},
+    )
+    tok = client.get(f"/v1/conversations/{first['id']}/token").json()["token"]
+
+    second = client.post("/v1/conversations", json={"resume_token": tok}).json()
+    assert second["turns"] == []
+    client.post(
+        f"/v1/conversations/{second['id']}/messages",
+        json={"content": "hola, poema por favor", "engine": "reproducible"},
+    )
+
+    a = client.get(f"/v1/conversations/{first['id']}").json()["turns"][1]
+    b = client.get(f"/v1/conversations/{second['id']}").json()["turns"][1]
+    assert a["seed"] == b["seed"], "same root seed and same turn index must give the same subkey"
+    assert a["content"] == b["content"]

@@ -39,6 +39,7 @@ class EngineRegistry:
                 settings.infer_model,
                 client,
                 timeout_s=settings.infer_timeout_s,
+                check_timeout_s=settings.status_timeout_s,
                 top_logprobs_k=settings.top_logprobs_k,
             ),
             EngineId.STANDARD: BaselineEngine(
@@ -47,6 +48,7 @@ class EngineRegistry:
                 settings.infer_model,
                 client,
                 timeout_s=settings.infer_timeout_s,
+                check_timeout_s=settings.status_timeout_s,
             ),
             EngineId.OPENROUTER: OpenRouterEngine(
                 settings.openrouter_base_url,
@@ -54,6 +56,7 @@ class EngineRegistry:
                 settings.openrouter_model,
                 client,
                 timeout_s=settings.infer_timeout_s,
+                check_timeout_s=settings.status_timeout_s,
                 extra_headers={
                     "HTTP-Referer": settings.app_origin,
                     "X-Title": "overversion",

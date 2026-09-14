@@ -16,6 +16,10 @@ export default defineRailway(() => {
     build: { builder: "DOCKERFILE", dockerfilePath: "services/api/Dockerfile" },
     healthcheck: "/health",
     healthcheckTimeout: 60,
+    // The service checks engine health lazily and keeps no idle database
+    // connections, so it stops sending packets when nobody is using it and
+    // Railway can sleep it. First request after a quiet spell pays a cold start.
+    deploy: { sleepApplication: true },
     domains: [{ domain: "api.overversion.com", port: 8000 }],
     env: {
       // Pinned so the container port and the domain's target port cannot
@@ -28,6 +32,7 @@ export default defineRailway(() => {
       INFER_MODEL: "qwen3-8b",
       STATUS_INTERVAL_S: "10",
       INFER_API_KEY: preserve(),
+      FRONTEND_SHARED_SECRET: preserve(),
       OPENROUTER_API_KEY: preserve(),
       TOKEN_SIGNING_SEED_HEX: preserve(),
     },

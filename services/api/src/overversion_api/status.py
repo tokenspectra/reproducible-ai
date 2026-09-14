@@ -1,9 +1,13 @@
-"""Background poller behind the status pill.
+"""What the status pill reads.
 
-Checks all three engines on an interval so that a page load never waits on a
-network round trip to a box that may be switched off, and so the UI can
-preselect an engine that is actually up. The default engine is Reproducible
-when it is up, otherwise OpenRouter (DEMO.md).
+Two modes. Lazily (the default), a status read refreshes only when the cached
+answer is older than the interval, so an idle service sends no traffic at all
+and can be slept by the host to save money; the cost is that the first read
+after a period of quiet waits for one round of checks, bounded by the short
+check timeout. With background polling on, a task refreshes on the interval
+instead, which keeps reads instant but means the service never looks idle.
+
+The default engine is Reproducible when it is up, otherwise OpenRouter.
 """
 
 from __future__ import annotations
@@ -18,9 +22,18 @@ DEFAULT_PREFERENCE = (EngineId.REPRODUCIBLE, EngineId.OPENROUTER, EngineId.STAND
 
 
 class StatusTracker:
-    def __init__(self, registry: EngineRegistry, interval_s: float = 10.0) -> None:
+    def __init__(
+        self,
+        registry: EngineRegistry,
+        interval_s: float = 10.0,
+        *,
+        background: bool = False,
+    ) -> None:
         self._registry = registry
         self._interval_s = interval_s
+        self._background = background
+        self._checked_at = 0.0
+        self._lock = asyncio.Lock()
         self._statuses: dict[EngineId, EngineStatus] = {
             e.id: EngineStatus(engine=e.id, up=False, detail="not checked yet")
             for e in registry.all()
@@ -30,6 +43,19 @@ class StatusTracker:
     @property
     def statuses(self) -> dict[EngineId, EngineStatus]:
         return dict(self._statuses)
+
+    @property
+    def stale(self) -> bool:
+        return (time.time() - self._checked_at) > self._interval_s
+
+    async def current(self) -> dict[EngineId, EngineStatus]:
+        """Statuses, refreshed first if the cached ones have aged out."""
+        if self._background or not self.stale:
+            return self.statuses
+        async with self._lock:
+            if not self.stale:  # another request refreshed while we waited
+                return self.statuses
+            return await self.refresh()
 
     def default_engine(self) -> EngineId | None:
         for engine_id in DEFAULT_PREFERENCE:
@@ -52,6 +78,7 @@ class StatusTracker:
                 )
             else:
                 self._statuses[engine.id] = result
+        self._checked_at = time.time()
         return self.statuses
 
     async def _loop(self) -> None:
@@ -61,8 +88,14 @@ class StatusTracker:
             await asyncio.sleep(self._interval_s)
 
     async def start(self) -> None:
-        await self.refresh()
-        self._task = asyncio.create_task(self._loop(), name="status-poller")
+        """Start background polling if configured; lazily, do nothing at all.
+
+        Deliberately no refresh here: checking at startup would make every cold
+        boot pay for three network round trips before serving its first request.
+        """
+        if self._background:
+            await self.refresh()
+            self._task = asyncio.create_task(self._loop(), name="status-poller")
 
     async def stop(self) -> None:
         if self._task:

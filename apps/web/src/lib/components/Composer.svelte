@@ -7,17 +7,21 @@
 		engine = $bindable(),
 		draft = $bindable(),
 		resumeToken = $bindable(),
+		tokenMode = $bindable(),
 		busy = false,
 		centered = false,
-		onsend
+		onsend,
+		onresume
 	}: {
 		status: StatusResponse;
 		engine: EngineId;
 		draft: string;
 		resumeToken: string;
+		tokenMode: 'seed' | 'state';
 		busy?: boolean;
 		centered?: boolean;
 		onsend: () => void;
+		onresume?: () => void;
 	} = $props();
 
 	let showToken = $state(false);
@@ -63,6 +67,41 @@
 		<div class="token-row">
 			<input bind:value={resumeToken} placeholder="rai1.…  (leave empty for a fresh random seed)" />
 		</div>
+		<div class="token-modes" role="radiogroup" aria-label="What to take from the token">
+			<button
+				type="button"
+				role="radio"
+				aria-checked={tokenMode === 'seed'}
+				class="mode"
+				class:on={tokenMode === 'seed'}
+				onclick={() => (tokenMode = 'seed')}
+			>
+				Same seed, empty chat
+			</button>
+			<button
+				type="button"
+				role="radio"
+				aria-checked={tokenMode === 'state'}
+				class="mode"
+				class:on={tokenMode === 'state'}
+				onclick={() => (tokenMode = 'state')}
+			>
+				Continue that conversation
+			</button>
+			<button
+				type="button"
+				class="ghost"
+				disabled={!resumeToken.trim() || busy}
+				onclick={() => onresume?.()}
+			>
+				Open now
+			</button>
+		</div>
+		<p class="token-hint">
+			{tokenMode === 'seed'
+				? 'Starts an empty conversation on the same seed. Ask the same first question and you get the same answer, word for word.'
+				: 'Copies the whole history and carries on from where the token was taken.'}
+		</p>
 	{/if}
 </div>
 
@@ -95,6 +134,22 @@
 	.ghost { background: transparent; font-size: 13px; padding: 5px 10px; }
 	.ghost[aria-pressed='true'] { border-color: var(--accent-dim); color: var(--accent); }
 	.send { background: var(--accent); color: #0d1512; border-color: var(--accent); font-weight: 600; }
-	.token-row { border-top: 1px solid var(--line); padding-top: 9px; }
+	.token-row {
+		border-top: 1px solid var(--line);
+		padding-top: 9px;
+		display: flex;
+		gap: 8px;
+		align-items: center;
+	}
 	.token-row input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+	.token-modes { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+	.mode {
+		padding: 4px 10px;
+		font-size: 12.5px;
+		border-radius: 999px;
+		background: transparent;
+	}
+	.mode.on { background: var(--accent-dim); border-color: var(--accent); }
+	.token-modes .ghost { margin-left: auto; white-space: nowrap; }
+	.token-hint { margin: 0; font-size: 11.5px; color: var(--muted); }
 </style>

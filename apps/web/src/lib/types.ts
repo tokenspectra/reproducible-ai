@@ -35,12 +35,14 @@ export interface Turn {
 
 export interface Conversation {
 	id: string;
+	seq: number;
 	title: string;
 	next_turn: number;
 	seed_source: string;
 	forked_from: string | null;
 	forked_at_turn: number | null;
 	imported_from_token: boolean;
+	forked_from_title?: string | null;
 	created_at: number;
 	updated_at: number;
 	turns?: Turn[];

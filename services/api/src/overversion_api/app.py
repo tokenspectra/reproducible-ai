@@ -23,12 +23,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         client = httpx.AsyncClient(follow_redirects=True)
         registry = EngineRegistry(settings, client)
-        tracker = StatusTracker(registry, settings.status_interval_s)
+        tracker = StatusTracker(
+            registry, settings.status_interval_s, background=settings.status_background_poll
+        )
         app.state.settings = settings
         app.state.client = client
         app.state.registry = registry
         app.state.status = tracker
-        db.init_engine(settings.database_url)
+        db.init_engine(settings.database_url, allow_idle_sleep=not settings.status_background_poll)
         await db.create_all()
         await tracker.start()
         try:
@@ -58,9 +60,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def status() -> dict[str, Any]:
         tracker: StatusTracker = app.state.status
         registry: EngineRegistry = app.state.registry
+        statuses = await tracker.current()
         engines = []
         for engine in registry.all():
-            st = tracker.statuses[engine.id]
+            st = statuses[engine.id]
             caps = engine.capabilities
             engines.append(
                 {

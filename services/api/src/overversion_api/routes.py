@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -40,6 +40,14 @@ class CreateConversation(BaseModel):
     title: str | None = None
     seed_hex: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     resume_token: str | None = None
+    token_mode: Literal["seed", "state"] = Field(
+        default="seed",
+        description=(
+            "What to take from the token. 'seed' starts an empty conversation on the same root "
+            "seed, so the same first message produces the same answer as it did there. 'state' "
+            "copies the whole history and continues from where the token was issued."
+        ),
+    )
 
 
 class SendMessage(BaseModel):
@@ -77,15 +85,19 @@ async def load_conversation(
     return conv
 
 
-def conversation_json(conv: db.Conversation, *, with_turns: bool = False) -> dict[str, Any]:
+def conversation_json(
+    conv: db.Conversation, *, with_turns: bool = False, source_title: str | None = None
+) -> dict[str, Any]:
     out: dict[str, Any] = {
         "id": conv.id,
+        "seq": conv.seq,
         "title": conv.title,
         "next_turn": conv.next_turn,
         "seed_source": conv.seed_source,
         "forked_from": conv.forked_from,
         "forked_at_turn": conv.forked_at_turn,
         "imported_from_token": conv.imported_from_token,
+        "forked_from_title": source_title,
         "created_at": conv.created_at,
         "updated_at": conv.updated_at,
     }
@@ -148,35 +160,48 @@ async def create_conversation(
     conv = db.Conversation(
         id=db.new_id("cnv"),
         user_id=user.id,
+        seq=await db.next_sequence(s, user.id),
         title=body.title or "New conversation",
         root_seed=new_root_seed().hex,
         seed_source="os_random",
     )
 
+    source_title: str | None = None
     if body.resume_token:
         token = _verify_token(request, body.resume_token)
-        source = (
-            await s.execute(
-                select(db.Conversation)
-                .where(db.Conversation.id == token.trace_id)
-                .options(selectinload(db.Conversation.turns).selectinload(db.Turn.steps))
-            )
-        ).scalar_one_or_none()
-        if source is None:
-            raise HTTPException(404, "the token's conversation no longer exists")
-        if prefix_commitment(source) != token.prefix_hash:
-            raise HTTPException(409, "the token's conversation has changed since it was issued")
         conv.root_seed = token.root_seed
         conv.seed_source = "external"
-        conv.next_turn = token.turn
-        conv.forked_from = source.id
-        conv.forked_at_turn = token.turn
         conv.imported_from_token = True
-        conv.title = body.title or f"Resumed: {source.title}"
-        s.add(conv)
-        await s.flush()
-        for t in source.turns:
-            s.add(_copy_turn(t, conv.id))
+
+        if body.token_mode == "seed":
+            # Nothing is copied. An empty conversation on the same root seed, so
+            # the same first message draws the same subkey and returns the same
+            # answer as it did in the conversation the token came from.
+            conv.title = body.title or "New conversation"
+            s.add(conv)
+        else:
+            source = (
+                await s.execute(
+                    select(db.Conversation)
+                    .where(db.Conversation.id == token.trace_id)
+                    .options(selectinload(db.Conversation.turns).selectinload(db.Turn.steps))
+                )
+            ).scalar_one_or_none()
+            if source is None:
+                raise HTTPException(404, "the token's conversation no longer exists")
+            if prefix_commitment(source) != token.prefix_hash:
+                raise HTTPException(
+                    409, "the token's conversation has changed since it was issued"
+                )
+            conv.next_turn = token.turn
+            conv.forked_from = source.id
+            conv.forked_at_turn = token.turn
+            conv.title = body.title or source.title
+            s.add(conv)
+            await s.flush()
+            for t in source.turns:
+                s.add(_copy_turn(t, conv.id))
+            source_title = source.title
     elif body.seed_hex:
         conv.root_seed = RootSeed.from_hex(body.seed_hex).hex
         conv.seed_source = "external"
@@ -186,7 +211,7 @@ async def create_conversation(
 
     await s.commit()
     conv = await load_conversation(s, conv.id, user)
-    return conversation_json(conv, with_turns=True)
+    return conversation_json(conv, with_turns=True, source_title=source_title)
 
 
 @router.get("/conversations/{conversation_id}")
@@ -208,6 +233,7 @@ async def fork_conversation(conversation_id: str, user: UserT, s: SessionT) -> d
     fork = db.Conversation(
         id=db.new_id("cnv"),
         user_id=user.id,
+        seq=await db.next_sequence(s, user.id),
         title=f"Fork of {source.title}",
         root_seed=source.root_seed,
         seed_source=source.seed_source,
@@ -217,11 +243,12 @@ async def fork_conversation(conversation_id: str, user: UserT, s: SessionT) -> d
     )
     s.add(fork)
     await s.flush()
+    source_title = source.title
     for t in source.turns:
         s.add(_copy_turn(t, fork.id))
     await s.commit()
     fork = await load_conversation(s, fork.id, user)
-    return conversation_json(fork, with_turns=True)
+    return conversation_json(fork, with_turns=True, source_title=source_title)
 
 
 def _copy_turn(t: db.Turn, conversation_id: str) -> db.Turn:
@@ -292,7 +319,7 @@ async def send_message(
     conv = await load_conversation(s, conversation_id, user)
     registry: EngineRegistry = request.app.state.registry
     tracker: StatusTracker = request.app.state.status
-    status = tracker.statuses.get(body.engine)
+    status = (await tracker.current()).get(body.engine)
     if status is None or not status.up:
         raise HTTPException(
             409,

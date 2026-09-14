@@ -36,6 +36,7 @@ class OpenAICompatEngine(Engine):
         client: httpx.AsyncClient,
         *,
         timeout_s: float = 300.0,
+        check_timeout_s: float = 5.0,
         top_logprobs_k: int = 0,
         extra_body: dict[str, Any] | None = None,
         extra_headers: dict[str, str] | None = None,
@@ -45,6 +46,7 @@ class OpenAICompatEngine(Engine):
         self.model = model
         self._client = client
         self._timeout_s = timeout_s
+        self._check_timeout_s = check_timeout_s
         self._top_logprobs_k = top_logprobs_k
         self._extra_body = extra_body or {}
         self._extra_headers = extra_headers or {}
@@ -130,8 +132,10 @@ class OpenAICompatEngine(Engine):
         return steps
 
     async def _get_json(self, path: str) -> dict[str, Any]:
+        # Health checks get their own short timeout: a switched-off GPU box must
+        # not hold the status endpoint open for the generation timeout.
         resp = await self._client.get(
-            f"{self.base_url}{path}", headers=self._headers(), timeout=self._timeout_s
+            f"{self.base_url}{path}", headers=self._headers(), timeout=self._check_timeout_s
         )
         resp.raise_for_status()
         return resp.json()

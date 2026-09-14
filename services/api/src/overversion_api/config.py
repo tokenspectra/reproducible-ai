@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     # Status poller
     status_interval_s: float = Field(default=10.0)
     status_timeout_s: float = Field(default=5.0)
+    status_background_poll: bool = Field(
+        default=False,
+        description="Poll engines on a timer. Keeps status reads instant, but the constant "
+        "outbound traffic stops the host from ever sleeping an idle service.",
+    )
 
     # Storage and identity
     database_url: str = Field(default="sqlite+aiosqlite:///./overversion.db")

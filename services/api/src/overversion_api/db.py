@@ -47,6 +47,7 @@ class Conversation(Base):
     __tablename__ = "conversations"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     user_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.id"), index=True)
+    seq: Mapped[int] = mapped_column(Integer, default=1)
     title: Mapped[str] = mapped_column(String(300), default="New conversation")
     root_seed: Mapped[str] = mapped_column(String(64))
     seed_source: Mapped[str] = mapped_column(String(16), default="os_random")
@@ -108,9 +109,18 @@ _engine = None
 _sessionmaker: async_sessionmaker[AsyncSession] | None = None
 
 
-def init_engine(database_url: str):
+def init_engine(database_url: str, *, allow_idle_sleep: bool = True):
+    """Create the engine.
+
+    With allow_idle_sleep, pooled connections are recycled quickly and the pool
+    is kept at zero when unused: an open database connection counts as outbound
+    traffic to the host, which would stop an idle service from ever sleeping.
+    """
     global _engine, _sessionmaker
-    _engine = create_async_engine(database_url, pool_pre_ping=True)
+    kwargs: dict = {"pool_pre_ping": True}
+    if allow_idle_sleep and not database_url.startswith("sqlite"):
+        kwargs |= {"pool_size": 1, "max_overflow": 4, "pool_recycle": 120, "pool_timeout": 30}
+    _engine = create_async_engine(database_url, **kwargs)
     _sessionmaker = async_sessionmaker(_engine, expire_on_commit=False)
     return _engine
 
@@ -122,15 +132,70 @@ def session() -> AsyncSession:
 
 
 async def create_all() -> None:
+    """Create missing tables, then apply the small column additions since.
+
+    No migration tool here on purpose: the schema is young and the additions so
+    far are new nullable-with-default columns, which a couple of idempotent
+    statements cover without dragging in Alembic for a demo.
+    """
     if _engine is None:
         raise RuntimeError("database not initialised")
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _add_missing_columns(conn)
+
+
+async def _add_missing_columns(conn) -> None:
+    from sqlalchemy import text
+
+    dialect = conn.dialect.name
+    if dialect == "postgresql":
+        existing = set(
+            (
+                await conn.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_name = 'conversations'"
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    else:
+        rows = (await conn.execute(text("PRAGMA table_info(conversations)"))).all()
+        existing = {r[1] for r in rows}
+
+    if "seq" not in existing:
+        await conn.execute(
+            text("ALTER TABLE conversations ADD COLUMN seq INTEGER NOT NULL DEFAULT 1")
+        )
+        # Backfill per user in creation order so existing rows get sensible numbers.
+        if dialect == "postgresql":
+            await conn.execute(
+                text(
+                    "UPDATE conversations c SET seq = n.rn FROM ("
+                    "  SELECT id, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at) rn"
+                    "  FROM conversations) n WHERE c.id = n.id"
+                )
+            )
 
 
 async def dispose() -> None:
     if _engine is not None:
         await _engine.dispose()
+
+
+async def next_sequence(db_session: AsyncSession, user_id: str) -> int:
+    """The next per-user conversation number. Monotonic: deleting does not reuse."""
+    from sqlalchemy import func
+
+    current = (
+        await db_session.execute(
+            select(func.max(Conversation.seq)).where(Conversation.user_id == user_id)
+        )
+    ).scalar()
+    return (current or 0) + 1
 
 
 async def get_or_create_user(db: AsyncSession, email: str, name: str) -> User:
