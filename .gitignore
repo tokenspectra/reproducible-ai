@@ -9,7 +9,6 @@ traces/
 
 cloud/nebius/.instance.env
 cloud/nebius/.secrets.env
-cloud/nebius/envelopes/*.json
 packages/*/.venv/
 services/*/.venv/
 

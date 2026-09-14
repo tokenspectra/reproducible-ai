@@ -1,10 +1,21 @@
 # Nebius H100 inference box for overversion.com
 
 One H100 SXM VM on Nebius that runs SGLang in deterministic mode behind Caddy at
-`https://infer.overversion.com`. It is **up only when you start it**: stopped VMs
-are not billed for compute (about $3.85/h running, about $14/month for the
-200 GiB boot disk while stopped). The boot disk keeps the pulled image and the
-model weights, so start-to-serving is a few minutes.
+`https://infer.overversion.com`.
+
+**Costs, so the choice between stopping and deleting is explicit:**
+
+| State | Cost | Time to serving |
+|---|---|---|
+| Running | $3.85/h plus the disk | seconds |
+| Stopped | disk only: 100 GiB network SSD is $11.80/month | ~3 min (`vm.sh start`, `inference.sh up`) |
+| Deleted | nothing | ~25 min (`create-vm.sh`, `provision.sh`, `inference.sh up`) |
+
+Stopped VMs are not billed for compute. A stopped box keeps the pulled image and
+the weights, which is the whole reason to stop rather than delete. Between
+demos days apart, delete: everything on that disk comes back from Docker Hub,
+Hugging Face and this repo, and the envelope of each run is already saved under
+`envelopes/`.
 
 Everything runs from this laptop over SSH. Nothing here needs the Nebius
 console after the first login.
@@ -27,7 +38,8 @@ console after the first login.
    Writes `.instance.env` with the instance id and public IP. For a stable IP
    across stop/start, create a public IP allocation once (console, or
    `nebius vpc allocation create --help`) and run `ALLOCATION_ID=... ./create-vm.sh`.
-4. **DNS**: A record `infer.overversion.com` to the printed IP. Caddy gets the
+4. **DNS**: A record `infer.overversion.com` to the printed IP. The IP changes
+   each time the VM is recreated unless you pass `ALLOCATION_ID`. Caddy gets the
    Let's Encrypt certificate on first request, so the record must resolve
    before `./inference.sh up`.
 5. **Provision** (about 10 minutes: toolkit check, firewall, image pull, 16 GB
@@ -89,6 +101,10 @@ when the baseline is on, 85 percent otherwise.
 ## Gotchas
 
 - Do not run `shutdown` inside the VM; Nebius reboots it and keeps billing. Use `./vm.sh stop`.
+- Nebius disks grow but never shrink. Raising `NEBIUS_BOOT_DISK_GIB` is a live
+  resize; lowering it means deleting the VM and provisioning again.
+- `./vm.sh delete` removes the instance; check `nebius compute disk list`
+  afterwards, since a disk left behind keeps billing on its own.
 - Dynamic public IPs can change on start. `./vm.sh start` prints the new one.
 - The image is pinned (`lmsysorg/sglang:v0.5.19-cu129`) and the host driver is 580 (CUDA 13.0), which
   runs CUDA 12.9 containers. Changing either changes the envelope; the saved JSON tells you.

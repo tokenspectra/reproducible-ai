@@ -39,7 +39,7 @@ INSTANCE_ID=$(nebius compute instance create \
   --resources-platform "$NEBIUS_PLATFORM" \
   --resources-preset "$NEBIUS_PRESET" \
   --boot-disk-managed-disk-name "${NEBIUS_INSTANCE_NAME}-disk" \
-  --boot-disk-managed-disk-type network_ssd \
+  --boot-disk-managed-disk-type "$NEBIUS_BOOT_DISK_TYPE" \
   --boot-disk-managed-disk-size-gibibytes "$NEBIUS_BOOT_DISK_GIB" \
   --boot-disk-managed-disk-block-size-bytes 4096 \
   --boot-disk-managed-disk-source-image-family-image-family "$NEBIUS_IMAGE_FAMILY" \
