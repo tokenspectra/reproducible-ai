@@ -18,6 +18,10 @@ export default defineRailway(() => {
     healthcheckTimeout: 60,
     domains: [{ domain: "api.overversion.com", port: 8000 }],
     env: {
+      // Pinned so the container port and the domain's target port cannot
+      // drift apart; Railway injects PORT=8080 by default, which the domain
+      // was not routing to.
+      PORT: "8000",
       DATABASE_URL: db.env.DATABASE_URL,
       APP_ORIGIN: "https://app.overversion.com",
       INFER_BASE_URL: "https://infer.overversion.com",

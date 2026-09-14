@@ -30,3 +30,8 @@ services/*/.venv/
 *.db
 *.sqlite3
 node_modules/
+.vercel/
+.svelte-kit/
+apps/web/.env*
+!apps/web/.env.example
+build/

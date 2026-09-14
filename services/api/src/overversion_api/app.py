@@ -9,8 +9,10 @@ import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from overversion_api import db
 from overversion_api.config import Settings, get_settings
 from overversion_api.engines import EngineRegistry
+from overversion_api.routes import router
 from overversion_api.status import StatusTracker
 
 
@@ -26,12 +28,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.client = client
         app.state.registry = registry
         app.state.status = tracker
+        db.init_engine(settings.database_url)
+        await db.create_all()
         await tracker.start()
         try:
             yield
         finally:
             await tracker.stop()
             await client.aclose()
+            await db.dispose()
 
     app = FastAPI(title="overversion api", version="0.1.0", lifespan=lifespan)
     app.add_middleware(
@@ -41,6 +46,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    app.include_router(router)
 
     @app.get("/health")
     async def health() -> dict[str, str]:
