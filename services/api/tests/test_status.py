@@ -96,3 +96,16 @@ async def test_openrouter_http_errors(tracker_factory, code):
     async with client:
         statuses = await tracker.refresh()
     assert not statuses[EngineId.OPENROUTER].up
+
+
+def test_database_url_gets_async_driver():
+    from overversion_api.config import Settings
+
+    cases = {
+        "postgres://u:p@h:5432/db": "postgresql+asyncpg://u:p@h:5432/db",
+        "postgresql://u:p@h:5432/db": "postgresql+asyncpg://u:p@h:5432/db",
+        "postgresql+asyncpg://u:p@h/db": "postgresql+asyncpg://u:p@h/db",
+        "sqlite:///./x.db": "sqlite+aiosqlite:///./x.db",
+    }
+    for given, want in cases.items():
+        assert Settings(database_url=given).database_url == want

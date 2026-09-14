@@ -39,11 +39,16 @@ sudo docker run --rm -e HF_TOKEN="${HF_TOKEN:-}" -e HF_HUB_ENABLE_HF_TRANSFER=1 
   | tail -1
 
 echo "== weights hash (once; part of the envelope)"
-SNAP=$(ls -d "$DATA_DIR"/hf/hub/models--${MODEL_ID//\//--}/snapshots/*/ | head -1)
-if [ ! -f "$SNAP/weights.sha256" ]; then
-  (cd "$SNAP" && sha256sum -- *.safetensors *.json 2>/dev/null | sort -k2 > weights.sha256)
+# The HF cache is written by a root container, so the snapshot directory is not
+# writable by us. The manifest therefore lives beside the compose files, which
+# we own, and records the snapshot id it was taken from.
+SNAP=$(sudo ls -d "$DATA_DIR"/hf/hub/models--${MODEL_ID//\//--}/snapshots/*/ | head -1)
+MANIFEST="$DATA_DIR/overversion/weights.sha256"
+if [ ! -s "$MANIFEST" ]; then
+  echo "# model=$MODEL_ID snapshot=$(basename "$SNAP")" > "$MANIFEST"
+  sudo sh -c "cd '$SNAP' && sha256sum -- *.safetensors *.json 2>/dev/null | sort -k2" >> "$MANIFEST"
 fi
-echo "weights manifest: $SNAP/weights.sha256 ($(wc -l < "$SNAP/weights.sha256") files)"
+echo "weights manifest: $MANIFEST ($(($(wc -l < "$MANIFEST") - 1)) files)"
 
 echo "== compose + caddy config"
 MEM_FRAC="0.85"; [ "${RUN_BASELINE:-0}" = "1" ] && MEM_FRAC="0.42"
@@ -134,7 +139,8 @@ cat > "$DATA_DIR/overversion/envelope.sh" <<'ENVL'
 set -euo pipefail
 cd "$(dirname "$0")"; set -a; source .env; set +a
 q() { nvidia-smi --query-gpu="$1" --format=csv,noheader,nounits | head -1 | xargs; }
-SNAP=$(ls -d "$DATA_DIR"/hf/hub/models--${MODEL_ID//\//--}/snapshots/*/ | head -1)
+SNAP=$(sudo ls -d "$DATA_DIR"/hf/hub/models--${MODEL_ID//\//--}/snapshots/*/ | head -1)
+MANIFEST="$DATA_DIR/overversion/weights.sha256"
 DIGEST=$(sudo docker inspect --format '{{index .RepoDigests 0}}' "$SGLANG_IMAGE" 2>/dev/null || echo "")
 INFO=$(curl -fsS -H "Authorization: Bearer $SGLANG_API_KEY" http://localhost:30000/server_info 2>/dev/null \
        || sudo docker exec sglang-det curl -fsS -H "Authorization: Bearer $SGLANG_API_KEY" http://localhost:30000/server_info 2>/dev/null || echo '{}')
@@ -143,7 +149,7 @@ jq -n \
   --arg vbios "$(q vbios_version)" --arg cuda "$(nvidia-smi | grep -o 'CUDA Version: [0-9.]*' | cut -d' ' -f3)" \
   --arg kernel "$(uname -r)" --arg os "$(. /etc/os-release && echo "$PRETTY_NAME")" \
   --arg image "$SGLANG_IMAGE" --arg digest "$DIGEST" --arg model "$MODEL_ID" \
-  --arg snapshot "$(basename "$SNAP")" --arg weights_manifest_sha "$(sha256sum "$SNAP/weights.sha256" | cut -d' ' -f1)" \
+  --arg snapshot "$(basename "$SNAP")" --arg weights_manifest_sha "$(sha256sum "$MANIFEST" | cut -d' ' -f1)" \
   --arg attn "$ATTENTION_BACKEND" --arg hostname "$(hostname)" --arg captured "$(date -u +%FT%TZ)" \
   --argjson server_info "$INFO" \
   '{captured_at:$captured, hostname:$hostname, gpu:{name:$gpu_name, arch:"sm_90", pci_device_id:$pci, driver:$driver, cuda_driver:$cuda, vbios:$vbios},

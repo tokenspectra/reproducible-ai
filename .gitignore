@@ -29,3 +29,4 @@ services/*/.venv/
 # databases
 *.db
 *.sqlite3
+node_modules/

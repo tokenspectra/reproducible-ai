@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -35,6 +35,25 @@ class Settings(BaseSettings):
 
     # Evidence
     top_logprobs_k: int = Field(default=32)
+
+    @field_validator("database_url")
+    @classmethod
+    def _async_driver(cls, v: str) -> str:
+        """Railway hands out `postgresql://`; SQLAlchemy needs an async driver spelled out.
+
+        Normalising here means the deployment can use Railway's reference
+        variable verbatim and nobody has to remember to rewrite the scheme.
+        """
+        for prefix in ("postgresql+asyncpg://", "sqlite+aiosqlite://"):
+            if v.startswith(prefix):
+                return v
+        if v.startswith("postgres://"):
+            return "postgresql+asyncpg://" + v[len("postgres://") :]
+        if v.startswith("postgresql://"):
+            return "postgresql+asyncpg://" + v[len("postgresql://") :]
+        if v.startswith("sqlite://"):
+            return "sqlite+aiosqlite://" + v[len("sqlite://") :]
+        return v
 
 
 @lru_cache
