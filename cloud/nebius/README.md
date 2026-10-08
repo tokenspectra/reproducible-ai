@@ -88,6 +88,23 @@ when the baseline is on, 85 percent otherwise.
   open upstream item; the verify path in our service re-prefills the whole
   transcript anyway.
 
+## OpenTofu state
+
+Tofu config lives in `tofu/`. Its state is in the `overversion-tfstate` bucket in
+Nebius Object Storage. The bucket has versioning on, and S3 lockfile locking
+(`use_lockfile`), so two laptops can't apply at the same time. Only the
+`tfstate-sa` service account can write to it, through the `tfstate-writers` group
+and a bucket policy that gives that group `storage.object-editor`.
+
+```bash
+./state-bucket.sh      # once per project: SA, group, bucket, access key into .secrets.env
+./tofu.sh init         # then plan / apply / state list ... as usual
+```
+
+On another laptop, copy `.secrets.env` (it holds `TFSTATE_ACCESS_KEY_ID` and
+`TFSTATE_SECRET_ACCESS_KEY`) and run `./tofu.sh init`. Always use `./tofu.sh`
+rather than plain `tofu`: it exports the bucket key for that one process only.
+
 ## Files
 
 - `config.env` committed defaults (image tag, model, preset, domain).
@@ -97,6 +114,7 @@ when the baseline is on, 85 percent otherwise.
 - `provision.sh` runs `remote/provision.sh` on the VM over SSH.
 - `inference.sh` runs `remote/inference.sh` on the VM over SSH; `health` and `up` also act from here.
 - `envelopes/` one JSON per `up`.
+- `state-bucket.sh` one-time bootstrap of the OpenTofu state bucket; `tofu.sh` runs `tofu` in `tofu/` with its key.
 
 ## Gotchas
 
