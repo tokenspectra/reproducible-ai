@@ -101,8 +101,10 @@ and a bucket policy that gives that group `storage.object-editor`.
 ./tofu.sh init         # then plan / apply / state list ... as usual
 ```
 
-On another laptop, copy `.secrets.env` (it holds `TFSTATE_ACCESS_KEY_ID` and
-`TFSTATE_SECRET_ACCESS_KEY`) and run `./tofu.sh init`. Always use `./tofu.sh`
+`.secrets.env` itself is kept in the same bucket at `secrets/nebius.secrets.env`.
+`./secrets.sh push` uploads it after you edit it; `./secrets.sh pull` downloads it.
+On a new laptop, `nebius profile create` is enough: pull fetches the bucket key
+from Nebius IAM with your login, then `./tofu.sh init`. Always use `./tofu.sh`
 rather than plain `tofu`: it exports the bucket key for that one process only.
 
 ## Files
@@ -115,6 +117,7 @@ rather than plain `tofu`: it exports the bucket key for that one process only.
 - `inference.sh` runs `remote/inference.sh` on the VM over SSH; `health` and `up` also act from here.
 - `envelopes/` one JSON per `up`.
 - `state-bucket.sh` one-time bootstrap of the OpenTofu state bucket; `tofu.sh` runs `tofu` in `tofu/` with its key.
+- `secrets.sh` push/pull `.secrets.env` to the state bucket.
 
 ## Gotchas
 
