@@ -10,6 +10,7 @@ One H100 SXM VM on Nebius that runs SGLang in deterministic mode behind Caddy at
 | Running | $3.85/h plus the disk | seconds |
 | Stopped | disk only: 100 GiB network SSD is $11.80/month | ~3 min (`vm.sh start`, `inference.sh up`) |
 | Deleted | nothing | ~25 min (`create-vm.sh`, `provision.sh`, `inference.sh up`) |
+| Reserved IP | free in every state ([Virtual Networks pricing](https://docs.nebius.com/vpc/resources/pricing)) | saves a DNS change and its propagation wait |
 
 Stopped VMs are not billed for compute. A stopped box keeps the pulled image and
 the weights, which is the whole reason to stop rather than delete. Between
@@ -35,13 +36,13 @@ console after the first login.
    ```bash
    ./create-vm.sh
    ```
-   Writes `.instance.env` with the instance id and public IP. For a stable IP
-   across stop/start, create a public IP allocation once (console, or
-   `nebius vpc allocation create --help`) and run `ALLOCATION_ID=... ./create-vm.sh`.
-4. **DNS**: A record `infer.overversion.com` to the printed IP. The IP changes
-   each time the VM is recreated unless you pass `ALLOCATION_ID`. Caddy gets the
-   Let's Encrypt certificate on first request, so the record must resolve
-   before `./inference.sh up`.
+   Writes `.instance.env` with the instance id and public IP. The IP comes from
+   a reserved allocation named `overversion-infer-ip` (`./ip.sh reserve` creates
+   it the first time and reuses it after that), so it survives stop/start and
+   delete/create. `DYNAMIC_IP=1 ./create-vm.sh` opts out.
+4. **DNS**: A record `infer.overversion.com` to the reserved IP, once. Caddy
+   gets the Let's Encrypt certificate on first request, so the record must
+   resolve before `./inference.sh up`.
 5. **Provision** (about 10 minutes: toolkit check, firewall, image pull, 16 GB
    of Qwen3-8B weights, weights hash, compose and Caddy files):
    ```bash
@@ -51,7 +52,7 @@ console after the first login.
 ## Every demo session
 
 ```bash
-./vm.sh start          # if stopped; prints the IP, update DNS if it changed
+./vm.sh start          # if stopped; the reserved IP comes back with it
 ./inference.sh up      # starts sglang-det (+ baseline), waits for health, saves the envelope JSON
 ./inference.sh health  # from outside, through Caddy
 # ... demo ...
@@ -113,6 +114,7 @@ rather than plain `tofu`: it exports the bucket key for that one process only.
 - `.secrets.env` API key, HF token, ACME email (ignored).
 - `.instance.env` instance id and IP (ignored, written by `create-vm.sh`).
 - `create-vm.sh`, `vm.sh` Nebius CLI lifecycle.
+- `ip.sh` reserved public IP: `reserve`, `attach` (for a VM created with a dynamic IP), `release`.
 - `provision.sh` runs `remote/provision.sh` on the VM over SSH.
 - `inference.sh` runs `remote/inference.sh` on the VM over SSH; `health` and `up` also act from here.
 - `envelopes/` one JSON per `up`.
@@ -126,7 +128,12 @@ rather than plain `tofu`: it exports the bucket key for that one process only.
   resize; lowering it means deleting the VM and provisioning again.
 - `./vm.sh delete` removes the instance; check `nebius compute disk list`
   afterwards, since a disk left behind keeps billing on its own.
-- Dynamic public IPs can change on start. `./vm.sh start` prints the new one.
+- A dynamic public IP goes back to Nebius after an hour stopped, so a box
+  created before `ip.sh` gets a new one on start. `./ip.sh attach` moves it to
+  the reserved IP once.
+- `./vm.sh delete` leaves the reserved IP in place, on purpose. `./ip.sh release`
+  gives it back. The default quota is 3 occupied public IPv4 addresses per
+  project, so the reservation uses one of them.
 - The image is pinned (`lmsysorg/sglang:v0.5.19-cu129`) and the host driver is 580 (CUDA 13.0), which
   runs CUDA 12.9 containers. Changing either changes the envelope; the saved JSON tells you.
 - First `inference.sh up` after provisioning compiles kernels and can take 3 to 5 minutes.
