@@ -25,13 +25,15 @@ SUBNET_ID=$(nebius vpc subnet list --format jsonpath='{.items[0].metadata.id}')
 [ -n "$SUBNET_ID" ] || die "no subnet in this project; create a VPC network/subnet in the console first"
 echo "subnet: $SUBNET_ID"
 
-# Optional static public IP so the infer.<domain> A record survives stop/start.
-# Create it once in the console or with `nebius vpc allocation create --help`, then export ALLOCATION_ID before running.
-if [ -n "${ALLOCATION_ID:-}" ]; then
-  PUBLIC_IP_SPEC="{\"allocation_id\": \"$ALLOCATION_ID\"}"
-else
+# Reserved public IP so the infer.<domain> A record survives stop/start and delete/create.
+# ./ip.sh reserve creates it the first time and finds it after that. DYNAMIC_IP=1 opts out.
+if [ "${DYNAMIC_IP:-0}" = "1" ]; then
   PUBLIC_IP_SPEC="{}"
-  echo "note: dynamic public IP; it can change on stop/start. Update the DNS A record after each start (./vm.sh ip)."
+  echo "note: dynamic public IP; it is released after an hour stopped. Update the DNS A record after each start (./vm.sh ip)."
+else
+  read -r ALLOCATION_ID RESERVED_IP < <("$HERE/ip.sh" reserve)
+  echo "reserved IP: $RESERVED_IP ($ALLOCATION_ID)"
+  PUBLIC_IP_SPEC="{\"allocation_id\": \"$ALLOCATION_ID\"}"
 fi
 
 INSTANCE_ID=$(nebius compute instance create \
