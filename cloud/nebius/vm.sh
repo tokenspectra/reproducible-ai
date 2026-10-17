@@ -20,7 +20,7 @@ refresh_ip() {
 case "$cmd" in
   status) nebius compute instance get --id "$INSTANCE_ID" --format json | jq '{name: .metadata.name, state: .status.state, ip: .status.network_interfaces[0].public_ip_address.address}' ;;
   ip)     refresh_ip ;;
-  start)  nebius compute instance start --id "$INSTANCE_ID"; echo "started; ip: $(refresh_ip)"; echo "if the IP changed, update the ${INFER_DOMAIN} A record before ./inference.sh up" ;;
+  start)  nebius compute instance start --id "$INSTANCE_ID"; echo "started; ip: $(refresh_ip)"; echo "if this is not the reserved IP (./ip.sh reserve), run ./ip.sh attach or update the ${INFER_DOMAIN} A record before ./inference.sh up" ;;
   stop)   nebius compute instance stop --id "$INSTANCE_ID"; echo "stopped (compute billing off; disk billing continues)" ;;
   ssh)    shift; ssh_vm "$@" ;;
   delete) read -r -p "delete instance $INSTANCE_ID and its boot disk (weights, images)? type yes: " a; [ "$a" = yes ] || exit 1

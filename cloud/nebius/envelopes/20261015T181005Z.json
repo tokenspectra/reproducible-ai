@@ -1,0 +1,26 @@
+{
+  "captured_at": "2026-10-15T18:10:05Z",
+  "hostname": "computeinstance-e00hpcc0k5e1gdwmmc",
+  "gpu": {
+    "name": "NVIDIA H100 80GB HBM3",
+    "arch": "sm_90",
+    "pci_device_id": "0x233010DE",
+    "driver": "580.173.02",
+    "cuda_driver": "13.0",
+    "vbios": "96.00.A5.00.01"
+  },
+  "os": "Ubuntu 24.04.5 LTS",
+  "kernel": "6.11.0-1016-nvidia",
+  "sglang": {
+    "image": "lmsysorg/sglang:v0.5.19-cu129",
+    "digest": "lmsysorg/sglang@sha256:59e11312666e1c5c155210ea335589b91daa0d70848521b390b93b1b1e8fb0ef",
+    "version": "0.5.19",
+    "deterministic": true,
+    "attention_backend": "fa3"
+  },
+  "model": {
+    "id": "Qwen/Qwen3-8B",
+    "snapshot": "b968826d9c46dd6066d109eabc6255188de91218",
+    "weights_manifest_sha256": "89d7294f55679ac8c420059de793f28d7bbf8dcacd5c585fd0ccf57284d33e2b"
+  }
+}
